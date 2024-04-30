@@ -32,5 +32,5 @@ steps:
     args:
       - '-c'
       - |
-        gcloud run services add-iam-policy-binding angularnodeservice --member=allUsers --role=roles/run.invoker
+        gcloud run services add-iam-policy-binding angularnodeservice --region us-central1 --member=allUsers --role=roles/run.invoker
 
