@@ -26,14 +26,11 @@ steps:
       - '--image=gcr.io/upbeat-stratum-421814/angular_node'
       - '--region=us-central1'
       - '--platform=managed'
-  # For giving permissions 
   # For giving permissions
   - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
     args:
-      - 'run'
-      - 'service'
-      - 'add-iam-policy-binding'
-      - 'angularnodeservice'
-      - '--member=allUsers'
-      - '--role=roles/run.invoker'
- 
+      - '-c'
+      - |
+        gcloud run services add-iam-policy-binding angularnodeservice --member=allUsers --role=roles/run.invoker
+
