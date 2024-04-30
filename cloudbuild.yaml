@@ -1,0 +1,28 @@
+steps:
+  # Step 1: Clone the source code from the Git repository
+  - name: 'gcr.io/cloud-builders/git'
+    args: ['clone', 'https://github.com/AkshayDhadwal/angular_node.git', './node']
+
+  - name: 'gcr.io/cloud-builders/npm'
+    args: [ 'install' ]
+
+  - name: 'gcr.io/cloud-builders/npm'
+    args: [ 'run', 'build' ]
+
+  # Step 2: Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/upbeat-stratum-421814/angular_node', './node']
+
+  # Step 3: Push the Docker image to Google Container Registry (GCR)
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/upbeat-stratum-421814/angular_node']
+
+  # Step 4: Deploy the Cloud Run service
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'angular_node_service'
+      - '--image=gcr.io/upbeat-stratum-421814/angular_node'
+      - '--region=us-central1'
+      - '--platform=managed'
