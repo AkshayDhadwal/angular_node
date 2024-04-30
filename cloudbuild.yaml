@@ -31,7 +31,7 @@ steps:
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       - 'run'
-      - 'services'
+      - 'service'
       - 'add-iam-policy-binding'
       - 'angularnodeservice'
       - '--member=allUsers'
