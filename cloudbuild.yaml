@@ -22,7 +22,7 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'angular_node_service'
+      - 'angularnodeservice'
       - '--image=gcr.io/upbeat-stratum-421814/angular_node'
       - '--region=us-central1'
       - '--platform=managed'
