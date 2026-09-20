@@ -8,7 +8,23 @@ const MOUSE_SENS := 0.0022
 const SYNC_HZ := 20.0
 const SHOT_DAMAGE := 34.0
 const SHOT_RANGE := 120.0
-const SHOT_COOLDOWN := 0.35
+const SHOT_COOLDOWN := 0.6
+
+# KayKit Adventurers (CC0) — see assets/KAYKIT-LICENSE.txt
+const CHARACTER_MODELS := [
+	preload("res://assets/characters/Knight.glb"),
+	preload("res://assets/characters/Rogue.glb"),
+	preload("res://assets/characters/Mage.glb"),
+	preload("res://assets/characters/Barbarian.glb"),
+]
+const WEAPON_MODEL := preload("res://assets/weapons/crossbow_2handed.gltf")
+
+const ANIM_IDLE := "2H_Ranged_Aiming"
+const ANIM_WALK := "Walking_A"
+const ANIM_RUN := "Running_A"
+const ANIM_JUMP := "Jump_Idle"
+const ANIM_SHOOT := "2H_Ranged_Shoot"
+const ANIM_DEATH := "Death_A"
 
 var peer_id := 1
 var player_name := "Player"
@@ -25,23 +41,16 @@ var _target_pos := Vector3.ZERO
 var _target_yaw := 0.0
 var _sync_accum := 0.0
 var _shot_cooldown := 0.0
-var _anim_time := 0.0
 var _prev_pos := Vector3.ZERO
 var _observed_speed := 0.0
+var _current_anim := ""
+var _action_lock := 0.0
 
 var spring: SpringArm3D
 var camera: Camera3D
 var rig: Node3D
-var torso: MeshInstance3D
-var head: Node3D
-var arm_l: Node3D
-var arm_r: Node3D
-var elbow_l: Node3D
-var elbow_r: Node3D
-var leg_l: Node3D
-var leg_r: Node3D
-var knee_l: Node3D
-var knee_r: Node3D
+var model: Node3D
+var anim: AnimationPlayer
 var name_label: Label3D
 
 
@@ -63,32 +72,13 @@ func get_peer_id() -> int:
 	return peer_id
 
 
-# --------------------------------------------------------------- appearance
-
-func _material(color: Color, rough := 0.85) -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	mat.roughness = rough
-	return mat
-
-
-func _part(size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
-	var node := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = size
-	node.mesh = mesh
-	node.position = pos
-	node.material_override = mat
-	return node
-
-
 func _build_collision() -> void:
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
 	capsule.radius = 0.35
-	capsule.height = 1.8
+	capsule.height = 1.6
 	shape.shape = capsule
-	shape.position = Vector3(0.0, 0.9, 0.0)
+	shape.position = Vector3(0.0, 0.8, 0.0)
 	add_child(shape)
 
 
@@ -96,79 +86,19 @@ func _build_character() -> void:
 	rig = Node3D.new()
 	add_child(rig)
 
-	var base_color := _color_for_peer(peer_id)
-	var shirt := _material(base_color, 0.95)
-	var sleeve := _material(base_color.darkened(0.18), 0.95)
-	var skin := _material(Color(0.8, 0.62, 0.47), 0.85)
-	var trousers := _material(Color(0.19, 0.21, 0.27), 0.95)
-	var boots := _material(Color(0.12, 0.11, 0.12), 0.8)
-	var hair := _material(Color(0.13, 0.1, 0.08), 0.95)
-	var belt := _material(Color(0.24, 0.18, 0.13), 0.8)
+	var scene: PackedScene = CHARACTER_MODELS[peer_id % CHARACTER_MODELS.size()]
+	model = scene.instantiate()
+	# The GLTF rig faces +Z; Godot treats -Z as forward.
+	model.rotation.y = PI
+	rig.add_child(model)
 
-	# Torso: narrower than the hips at the waist, wider at the shoulders.
-	torso = _part(Vector3(0.44, 0.52, 0.26), Vector3(0.0, 1.18, 0.0), shirt)
-	rig.add_child(torso)
-	rig.add_child(_part(Vector3(0.5, 0.17, 0.28), Vector3(0.0, 1.4, 0.0), shirt))
-	rig.add_child(_part(Vector3(0.42, 0.14, 0.26), Vector3(0.0, 0.95, 0.0), belt))
-	rig.add_child(_part(Vector3(0.4, 0.14, 0.25), Vector3(0.0, 0.86, 0.0), trousers))
-
-	# Head on its own pivot
-	head = Node3D.new()
-	head.position = Vector3(0.0, 1.54, 0.0)
-	rig.add_child(head)
-	head.add_child(_part(Vector3(0.15, 0.13, 0.15), Vector3(0.0, 0.05, 0.0), skin))
-	head.add_child(_part(Vector3(0.3, 0.3, 0.29), Vector3(0.0, 0.26, 0.0), skin))
-	head.add_child(_part(Vector3(0.32, 0.1, 0.31), Vector3(0.0, 0.44, 0.0), hair))
-	head.add_child(_part(Vector3(0.33, 0.12, 0.06), Vector3(0.0, 0.33, -0.14), hair))
-	var eye := _material(Color(0.07, 0.07, 0.09), 0.4)
-	head.add_child(_part(Vector3(0.055, 0.055, 0.02), Vector3(-0.07, 0.27, -0.152), eye))
-	head.add_child(_part(Vector3(0.055, 0.055, 0.02), Vector3(0.07, 0.27, -0.152), eye))
-
-	# Arms: shoulder pivot, then an elbow pivot carrying the forearm.
-	arm_l = Node3D.new()
-	arm_l.position = Vector3(-0.31, 1.44, 0.0)
-	rig.add_child(arm_l)
-	arm_l.add_child(_part(Vector3(0.15, 0.4, 0.16), Vector3(0.0, -0.2, 0.0), sleeve))
-	elbow_l = Node3D.new()
-	elbow_l.position = Vector3(0.0, -0.4, 0.0)
-	arm_l.add_child(elbow_l)
-	elbow_l.add_child(_part(Vector3(0.13, 0.36, 0.14), Vector3(0.0, -0.18, 0.0), sleeve))
-	elbow_l.add_child(_part(Vector3(0.14, 0.15, 0.15), Vector3(0.0, -0.42, 0.0), skin))
-
-	arm_r = Node3D.new()
-	arm_r.position = Vector3(0.31, 1.44, 0.0)
-	rig.add_child(arm_r)
-	arm_r.add_child(_part(Vector3(0.15, 0.4, 0.16), Vector3(0.0, -0.2, 0.0), sleeve))
-	elbow_r = Node3D.new()
-	elbow_r.position = Vector3(0.0, -0.4, 0.0)
-	arm_r.add_child(elbow_r)
-	elbow_r.add_child(_part(Vector3(0.13, 0.36, 0.14), Vector3(0.0, -0.18, 0.0), sleeve))
-	elbow_r.add_child(_part(Vector3(0.14, 0.15, 0.15), Vector3(0.0, -0.42, 0.0), skin))
-
-	# Legs: hip pivot, then a knee pivot carrying the shin and boot.
-	leg_l = Node3D.new()
-	leg_l.position = Vector3(-0.12, 0.9, 0.0)
-	rig.add_child(leg_l)
-	leg_l.add_child(_part(Vector3(0.18, 0.44, 0.19), Vector3(0.0, -0.22, 0.0), trousers))
-	knee_l = Node3D.new()
-	knee_l.position = Vector3(0.0, -0.44, 0.0)
-	leg_l.add_child(knee_l)
-	knee_l.add_child(_part(Vector3(0.16, 0.42, 0.17), Vector3(0.0, -0.21, 0.0), trousers))
-	knee_l.add_child(_part(Vector3(0.19, 0.13, 0.27), Vector3(0.0, -0.45, -0.04), boots))
-
-	leg_r = Node3D.new()
-	leg_r.position = Vector3(0.12, 0.9, 0.0)
-	rig.add_child(leg_r)
-	leg_r.add_child(_part(Vector3(0.18, 0.44, 0.19), Vector3(0.0, -0.22, 0.0), trousers))
-	knee_r = Node3D.new()
-	knee_r.position = Vector3(0.0, -0.44, 0.0)
-	leg_r.add_child(knee_r)
-	knee_r.add_child(_part(Vector3(0.16, 0.42, 0.17), Vector3(0.0, -0.21, 0.0), trousers))
-	knee_r.add_child(_part(Vector3(0.19, 0.13, 0.27), Vector3(0.0, -0.45, -0.04), boots))
+	anim = _find_animation_player(model)
+	_hide_stock_gear(model)
+	_attach_weapon()
 
 	name_label = Label3D.new()
 	name_label.text = player_name
-	name_label.position = Vector3(0.0, 2.3, 0.0)
+	name_label.position = Vector3(0.0, 2.0, 0.0)
 	name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	name_label.no_depth_test = true
 	name_label.font_size = 44
@@ -177,9 +107,56 @@ func _build_character() -> void:
 	add_child(name_label)
 
 
+func _hide_stock_gear(node: Node) -> void:
+	# The pack ships every sword and shield visible in the hand sockets at once;
+	# they must be hidden or the character carries the whole armoury.
+	var parent := node.get_parent()
+	if node is MeshInstance3D and parent != null and "handslot" in String(parent.name):
+		node.visible = false
+	for child in node.get_children():
+		_hide_stock_gear(child)
+
+
+func _find_animation_player(node: Node) -> AnimationPlayer:
+	if node is AnimationPlayer:
+		return node
+	for child in node.get_children():
+		var found := _find_animation_player(child)
+		if found != null:
+			return found
+	return null
+
+
+func _find_skeleton(node: Node) -> Skeleton3D:
+	if node is Skeleton3D:
+		return node
+	for child in node.get_children():
+		var found := _find_skeleton(child)
+		if found != null:
+			return found
+	return null
+
+
+func _attach_weapon() -> void:
+	var skeleton := _find_skeleton(model)
+	if skeleton == null:
+		return
+	# The rig ships dedicated weapon sockets rather than parenting to the hand.
+	var bone := skeleton.find_bone("handslot.r")
+	if bone == -1:
+		bone = skeleton.find_bone("hand.r")
+	if bone == -1:
+		return
+
+	var attachment := BoneAttachment3D.new()
+	attachment.bone_idx = bone
+	skeleton.add_child(attachment)
+	attachment.add_child(WEAPON_MODEL.instantiate())
+
+
 func _build_camera() -> void:
 	spring = SpringArm3D.new()
-	spring.position = Vector3(0.0, 1.7, 0.0)
+	spring.position = Vector3(0.0, 1.45, 0.0)
 	spring.spring_length = 5.0
 	spring.margin = 0.3
 	add_child(spring)
@@ -189,11 +166,6 @@ func _build_camera() -> void:
 	camera.position = Vector3(0.8, 0.0, 0.0)
 	camera.current = true
 	spring.add_child(camera)
-
-
-func _color_for_peer(id: int) -> Color:
-	var hue := fmod(float(id) * 0.191, 1.0)
-	return Color.from_hsv(hue, 0.6, 0.85)
 
 
 func set_display_name(value: String) -> void:
@@ -225,6 +197,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	_shot_cooldown = maxf(0.0, _shot_cooldown - delta)
+	_action_lock = maxf(0.0, _action_lock - delta)
 
 	if is_local:
 		if alive:
@@ -239,10 +212,11 @@ func _physics_process(delta: float) -> void:
 		rotation.y = lerp_angle(rotation.y, _target_yaw, weight)
 
 	if delta > 0.0:
-		var travelled := (global_position - _prev_pos)
+		var travelled := global_position - _prev_pos
 		_observed_speed = Vector2(travelled.x, travelled.z).length() / delta
 		_prev_pos = global_position
-	_animate(delta)
+
+	_update_animation()
 
 
 func _move_local(delta: float) -> void:
@@ -280,51 +254,40 @@ func _move_local(delta: float) -> void:
 
 # --------------------------------------------------------------- animation
 
-func _animate(delta: float) -> void:
-	if rig == null:
+func _play(anim_name: String, blend := 0.15) -> void:
+	if anim == null or _current_anim == anim_name or not anim.has_animation(anim_name):
+		return
+	_current_anim = anim_name
+	anim.play(anim_name, blend)
+
+
+func _play_action(anim_name: String, duration: float) -> void:
+	if anim == null or not anim.has_animation(anim_name):
+		return
+	_current_anim = anim_name
+	_action_lock = duration
+	anim.play(anim_name, 0.08)
+
+
+func _update_animation() -> void:
+	if anim == null:
 		return
 
-	var moving := _observed_speed > 0.6
-	var stride_rate := 5.0 + clampf(_observed_speed, 0.0, 10.0) * 0.85
-	_anim_time += delta * (stride_rate if moving else 1.8)
+	if not alive:
+		_play(ANIM_DEATH, 0.2)
+		return
 
-	var settle := clampf(delta * 10.0, 0.0, 1.0)
+	if _action_lock > 0.0:
+		return
 
-	if moving:
-		var amount := clampf(_observed_speed / WALK_SPEED, 0.25, 1.5)
-		var swing := sin(_anim_time) * 0.8 * amount
-
-		arm_l.rotation.x = swing
-		arm_r.rotation.x = -swing
-		# Elbows stay slightly bent and tuck further on the back swing.
-		elbow_l.rotation.x = -0.25 - maxf(0.0, -swing) * 0.55
-		elbow_r.rotation.x = -0.25 - maxf(0.0, swing) * 0.55
-
-		leg_l.rotation.x = -swing
-		leg_r.rotation.x = swing
-		knee_l.rotation.x = -maxf(0.0, swing) * 0.95
-		knee_r.rotation.x = -maxf(0.0, -swing) * 0.95
-
-		torso.position.y = 1.18 + absf(sin(_anim_time)) * 0.035
-		torso.rotation.z = sin(_anim_time) * 0.035
-		rig.rotation.x = -clampf(_observed_speed / SPRINT_SPEED, 0.0, 1.0) * 0.09
+	if is_local and not is_on_floor():
+		_play(ANIM_JUMP)
+	elif _observed_speed > WALK_SPEED + 1.0:
+		_play(ANIM_RUN)
+	elif _observed_speed > 0.6:
+		_play(ANIM_WALK)
 	else:
-		arm_l.rotation.x = lerp_angle(arm_l.rotation.x, 0.0, settle)
-		arm_r.rotation.x = lerp_angle(arm_r.rotation.x, 0.0, settle)
-		elbow_l.rotation.x = lerp_angle(elbow_l.rotation.x, -0.18, settle)
-		elbow_r.rotation.x = lerp_angle(elbow_r.rotation.x, -0.18, settle)
-		leg_l.rotation.x = lerp_angle(leg_l.rotation.x, 0.0, settle)
-		leg_r.rotation.x = lerp_angle(leg_r.rotation.x, 0.0, settle)
-		knee_l.rotation.x = lerp_angle(knee_l.rotation.x, 0.0, settle)
-		knee_r.rotation.x = lerp_angle(knee_r.rotation.x, 0.0, settle)
-		torso.position.y = 1.18 + sin(_anim_time) * 0.012
-		torso.rotation.z = lerp_angle(torso.rotation.z, 0.0, settle)
-		rig.rotation.x = lerp_angle(rig.rotation.x, 0.0, settle)
-
-	if head != null:
-		# Only a hint of the aim direction — a full pitch match looks broken.
-		var look := pitch * 0.3 if is_local else 0.0
-		head.rotation.x = lerp_angle(head.rotation.x, clampf(look, -0.2, 0.15), settle)
+		_play(ANIM_IDLE, 0.25)
 
 
 # ------------------------------------------------------------------ combat
@@ -337,6 +300,7 @@ func _try_shoot() -> void:
 		return
 
 	_shot_cooldown = SHOT_COOLDOWN
+	_shoot_effect.rpc()
 
 	var space := get_world_3d().direct_space_state
 	var from := camera.global_position
@@ -352,6 +316,11 @@ func _try_shoot() -> void:
 		world.request_hit.rpc_id(1, collider.get_peer_id(), SHOT_DAMAGE)
 
 
+@rpc("any_peer", "call_local", "reliable")
+func _shoot_effect() -> void:
+	_play_action(ANIM_SHOOT, 0.5)
+
+
 @rpc("any_peer", "unreliable_ordered", "call_remote")
 func _apply_state(pos: Vector3, new_yaw: float) -> void:
 	if multiplayer.get_remote_sender_id() != peer_id:
@@ -361,11 +330,13 @@ func _apply_state(pos: Vector3, new_yaw: float) -> void:
 
 
 func apply_stats(new_health: float, new_coins: int, is_alive: bool) -> void:
+	if alive != is_alive:
+		# Force the animation state machine to re-evaluate on death or respawn.
+		_current_anim = ""
+		_action_lock = 0.0
 	health = new_health
 	coins = new_coins
 	alive = is_alive
-	if rig != null:
-		rig.visible = is_alive
 	if name_label != null:
 		name_label.visible = is_alive
 
