@@ -1,6 +1,6 @@
 extends Node3D
 
-## Bootstrap: lobby menu, ENet host/join, and player spawn replication.
+## Bootstrap: sign-in flow, ENet connection, and player spawn replication.
 
 const PORT := 8910
 const MAX_PLAYERS := 16
@@ -12,13 +12,16 @@ const HudScene := preload("res://scenes/hud.tscn")
 var world: Node3D
 var hud: CanvasLayer
 var menu: CanvasLayer
-var name_input: LineEdit
-var ip_input: LineEdit
+var menu_box: VBoxContainer
 var status_label: Label
 
 var local_name := "Player"
 var players: Dictionary = {}
 var player_names: Dictionary = {}
+
+var _phone := ""
+var _expected_code := ""
+var _server_address := "127.0.0.1"
 
 
 func _ready() -> void:
@@ -30,7 +33,6 @@ func _ready() -> void:
 	_build_environment()
 	_build_menu()
 
-	# Headless dedicated server: godot --headless -- --server
 	if OS.has_feature("dedicated_server") or "--server" in OS.get_cmdline_user_args():
 		_host()
 	elif "--client" in OS.get_cmdline_user_args():
@@ -56,7 +58,7 @@ func _build_environment() -> void:
 	add_child(env)
 
 
-# ------------------------------------------------------------------- lobby
+# ------------------------------------------------------------------ sign-in
 
 func _build_menu() -> void:
 	menu = CanvasLayer.new()
@@ -71,57 +73,40 @@ func _build_menu() -> void:
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	menu.add_child(center)
 
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
-	center.add_child(box)
+	menu_box = VBoxContainer.new()
+	menu_box.add_theme_constant_override("separation", 10)
+	center.add_child(menu_box)
 
-	var title := Label.new()
-	title.text = "GOLDEN EGG"
-	title.add_theme_font_size_override("font_size", 46)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(title)
+	_show_sign_in()
 
-	var subtitle := Label.new()
-	subtitle.text = "Find the egg. Survive the battle window. Don't lose your coins."
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(subtitle)
 
-	box.add_child(_spacer(16))
+func _clear_menu() -> void:
+	for child in menu_box.get_children():
+		child.queue_free()
 
-	name_input = LineEdit.new()
-	name_input.placeholder_text = "Your name"
-	name_input.text = "Player%d" % (randi() % 900 + 100)
-	name_input.custom_minimum_size = Vector2(320, 38)
-	box.add_child(name_input)
 
-	var host_button := Button.new()
-	host_button.text = "Host a game"
-	host_button.custom_minimum_size = Vector2(320, 44)
-	host_button.pressed.connect(_host)
-	box.add_child(host_button)
+func _heading(text: String, size: int) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", size)
+	return label
 
-	box.add_child(_spacer(10))
 
-	ip_input = LineEdit.new()
-	ip_input.placeholder_text = "Host address (blank = 127.0.0.1)"
-	ip_input.custom_minimum_size = Vector2(320, 38)
-	box.add_child(ip_input)
+func _field(placeholder: String, initial := "") -> LineEdit:
+	var edit := LineEdit.new()
+	edit.placeholder_text = placeholder
+	edit.text = initial
+	edit.custom_minimum_size = Vector2(340, 40)
+	return edit
 
-	var join_button := Button.new()
-	join_button.text = "Join a game"
-	join_button.custom_minimum_size = Vector2(320, 44)
-	join_button.pressed.connect(_join)
-	box.add_child(join_button)
 
-	status_label = Label.new()
-	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_label.custom_minimum_size = Vector2(320, 24)
-	box.add_child(status_label)
-
-	var help := Label.new()
-	help.text = "WASD move · Shift sprint · Space jump · Mouse look · Click shoot (battle only) · Esc release cursor"
-	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(help)
+func _button(text: String, handler: Callable) -> Button:
+	var button := Button.new()
+	button.text = text
+	button.custom_minimum_size = Vector2(340, 46)
+	button.pressed.connect(handler)
+	return button
 
 
 func _spacer(height: int) -> Control:
@@ -130,17 +115,122 @@ func _spacer(height: int) -> Control:
 	return spacer
 
 
-func _chosen_name() -> String:
-	var value := name_input.text.strip_edges() if name_input != null else ""
-	return value if value != "" else "Player"
+func _add_status() -> void:
+	status_label = Label.new()
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status_label.custom_minimum_size = Vector2(340, 26)
+	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	menu_box.add_child(status_label)
 
+
+func _show_sign_in() -> void:
+	_clear_menu()
+	menu_box.add_child(_heading("GOLDEN EGG", 48))
+	menu_box.add_child(_heading("Sign in to play", 16))
+	menu_box.add_child(_spacer(18))
+
+	var name_field := _field("Your name", local_name if local_name != "Player" else "")
+	menu_box.add_child(name_field)
+
+	var phone_field := _field("Phone number", _phone)
+	menu_box.add_child(phone_field)
+
+	menu_box.add_child(_button("Send verification code", func() -> void:
+		_request_code(name_field.text, phone_field.text)))
+
+	_add_status()
+
+
+func _request_code(entered_name: String, entered_phone: String) -> void:
+	var clean_name := entered_name.strip_edges()
+	var digits := ""
+	for character in entered_phone:
+		if character >= "0" and character <= "9":
+			digits += character
+
+	if clean_name.length() < 2:
+		status_label.text = "Enter a name of at least 2 characters."
+		return
+	if digits.length() < 8 or digits.length() > 15:
+		status_label.text = "Enter a valid phone number (8-15 digits)."
+		return
+
+	local_name = clean_name
+	_phone = digits
+	_expected_code = "%06d" % (randi() % 1000000)
+	_show_verify()
+
+
+func _show_verify() -> void:
+	_clear_menu()
+	menu_box.add_child(_heading("Enter your code", 30))
+	menu_box.add_child(_heading("Sent to " + _masked_phone(), 15))
+	menu_box.add_child(_spacer(12))
+
+	var code_field := _field("6-digit code")
+	code_field.max_length = 6
+	menu_box.add_child(code_field)
+
+	menu_box.add_child(_button("Verify", func() -> void:
+		_verify_code(code_field.text)))
+	menu_box.add_child(_button("Use a different number", func() -> void:
+		_show_sign_in()))
+
+	# No SMS provider is wired up yet, so the code is shown here instead.
+	var dev_note := Label.new()
+	dev_note.text = "Development build — no SMS service connected.\nYour code is %s" % _expected_code
+	dev_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dev_note.add_theme_color_override("font_color", Color(0.85, 0.72, 0.35))
+	menu_box.add_child(dev_note)
+
+	_add_status()
+
+
+func _masked_phone() -> String:
+	if _phone.length() <= 4:
+		return _phone
+	return "*".repeat(_phone.length() - 4) + _phone.substr(_phone.length() - 4)
+
+
+func _verify_code(entered: String) -> void:
+	if entered.strip_edges() != _expected_code:
+		status_label.text = "That code doesn't match. Try again."
+		return
+	_show_play()
+
+
+func _show_play() -> void:
+	_clear_menu()
+	menu_box.add_child(_heading("Welcome, " + local_name, 30))
+	menu_box.add_child(_heading("Find the egg. Survive the battle window.", 15))
+	menu_box.add_child(_spacer(18))
+
+	var address_field := _field("Server address", _server_address)
+	menu_box.add_child(address_field)
+
+	menu_box.add_child(_button("Play", func() -> void:
+		_server_address = address_field.text.strip_edges()
+		_join()))
+
+	menu_box.add_child(_spacer(10))
+	menu_box.add_child(_button("Run a local server (development)", _host))
+
+	_add_status()
+
+	var help := Label.new()
+	help.text = "WASD move · Shift sprint · Space jump · Mouse look · Click shoot (battle only) · Esc release cursor"
+	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_box.add_child(help)
+
+
+# --------------------------------------------------------------- networking
 
 func _host() -> void:
-	local_name = _chosen_name()
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_server(PORT, MAX_PLAYERS)
 	if err != OK:
-		status_label.text = "Could not host on port %d (error %d)" % [PORT, err]
+		if status_label != null:
+			status_label.text = "Could not host on port %d (error %d)" % [PORT, err]
 		return
 	multiplayer.multiplayer_peer = peer
 	_enter_game()
@@ -148,17 +238,16 @@ func _host() -> void:
 
 
 func _join() -> void:
-	local_name = _chosen_name()
-	var address := ip_input.text.strip_edges()
-	if address == "":
-		address = "127.0.0.1"
+	var address := _server_address if _server_address != "" else "127.0.0.1"
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_client(address, PORT)
 	if err != OK:
-		status_label.text = "Could not connect (error %d)" % err
+		if status_label != null:
+			status_label.text = "Could not connect (error %d)" % err
 		return
 	multiplayer.multiplayer_peer = peer
-	status_label.text = "Connecting to %s ..." % address
+	if status_label != null:
+		status_label.text = "Connecting to %s ..." % address
 
 
 func _enter_game() -> void:
@@ -166,6 +255,8 @@ func _enter_game() -> void:
 		return
 	menu.queue_free()
 	menu = null
+	menu_box = null
+	status_label = null
 
 	world = WorldScene.instantiate()
 	world.name = "World"
@@ -176,15 +267,14 @@ func _enter_game() -> void:
 	hud.bind(self, world)
 
 
-# --------------------------------------------------------- connection hooks
-
 func _on_connected_ok() -> void:
 	_enter_game()
 	_register_player.rpc_id(1, local_name)
 
 
 func _on_connection_failed() -> void:
-	status_label.text = "Connection failed."
+	if status_label != null:
+		status_label.text = "Connection failed. Is the server running?"
 	multiplayer.multiplayer_peer = null
 
 

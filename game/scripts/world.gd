@@ -6,6 +6,8 @@ extends Node3D
 const MAP_SEED := 20260920
 const MAP_RADIUS := 70.0
 const BARRACKS_COUNT := 16
+const BARRACKS_RADIUS := 36.0
+const PLAZA_RADIUS := 9.0
 const EGG_REWARD := 120
 const EGG_PICKUP_RANGE := 2.2
 const LOOT_PICKUP_RANGE := 2.0
@@ -22,7 +24,7 @@ signal state_changed
 
 var battle_active := false
 var phase_time_left := 0.0
-var boundary_radius := 36.0
+var boundary_radius := 48.0
 var egg_position := Vector3.ZERO
 
 var _rng := RandomNumberGenerator.new()
@@ -30,6 +32,7 @@ var _barracks: Array[Dictionary] = []
 var _loot: Dictionary = {}
 var _next_loot_id := 1
 var _respawn_queue: Dictionary = {}
+var building_positions: Array[Vector3] = []
 var _egg_node: Node3D
 var _boundary_node: MeshInstance3D
 
@@ -52,120 +55,220 @@ func _is_server() -> bool:
 # Built identically on every peer from a fixed seed, so nothing needs syncing.
 
 func _build_map() -> void:
-	var ground := StaticBody3D.new()
-	var ground_shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(MAP_RADIUS * 2.0, 1.0, MAP_RADIUS * 2.0)
-	ground_shape.shape = box
-	ground_shape.position = Vector3(0.0, -0.5, 0.0)
-	ground.add_child(ground_shape)
-
-	var ground_mesh := MeshInstance3D.new()
-	var plane := BoxMesh.new()
-	plane.size = Vector3(MAP_RADIUS * 2.0, 1.0, MAP_RADIUS * 2.0)
-	ground_mesh.mesh = plane
-	ground_mesh.position = Vector3(0.0, -0.5, 0.0)
-	ground_mesh.material_override = _material(Color(0.24, 0.42, 0.26))
-	ground.add_child(ground_mesh)
-	add_child(ground)
-
-	_scatter_trees(110)
-	_place_buildings(9)
+	_build_ground()
+	_build_plaza()
+	_build_roads()
+	_build_town()
+	_scatter_trees(40)
 	_place_barracks()
 
 
-func _material(color: Color) -> StandardMaterial3D:
+func _material(color: Color, rough := 0.9) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
-	mat.roughness = 0.9
+	mat.roughness = rough
 	return mat
 
 
-func _scatter_trees(count: int) -> void:
-	for i in count:
-		var pos := _random_point(MAP_RADIUS - 6.0)
-		if pos.length() < 12.0:
-			continue  # keep the middle clear as a natural meeting ground
-		var height := _rng.randf_range(3.5, 6.5)
+func _add_box(parent: Node3D, size: Vector3, pos: Vector3, mat: StandardMaterial3D, solid := true) -> void:
+	if solid and parent is StaticBody3D:
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = size
+		shape.shape = box
+		shape.position = pos
+		parent.add_child(shape)
 
-		var trunk := StaticBody3D.new()
+	var mesh_node := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	mesh_node.mesh = mesh
+	mesh_node.position = pos
+	mesh_node.material_override = mat
+	parent.add_child(mesh_node)
+
+
+func _build_ground() -> void:
+	var ground := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(MAP_RADIUS * 2.0, 1.0, MAP_RADIUS * 2.0)
+	shape.shape = box
+	shape.position = Vector3(0.0, -0.5, 0.0)
+	ground.add_child(shape)
+
+	var mesh_node := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(MAP_RADIUS * 2.0, 1.0, MAP_RADIUS * 2.0)
+	mesh_node.mesh = mesh
+	mesh_node.position = Vector3(0.0, -0.5, 0.0)
+	mesh_node.material_override = _material(Color(0.27, 0.44, 0.27))
+	ground.add_child(mesh_node)
+	add_child(ground)
+
+
+func _build_plaza() -> void:
+	# Paved square at the centre — the natural place for players to collide.
+	var paving := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = PLAZA_RADIUS
+	disc.bottom_radius = PLAZA_RADIUS
+	disc.height = 0.12
+	paving.mesh = disc
+	paving.position = Vector3(0.0, 0.06, 0.0)
+	paving.material_override = _material(Color(0.58, 0.55, 0.5))
+	add_child(paving)
+
+	# Monument, so the middle of the map has a landmark you can navigate by.
+	var monument := StaticBody3D.new()
+	var stone := _material(Color(0.68, 0.64, 0.58))
+	_add_box(monument, Vector3(3.0, 0.5, 3.0), Vector3(0.0, 0.25, 0.0), stone)
+	_add_box(monument, Vector3(2.0, 0.5, 2.0), Vector3(0.0, 0.7, 0.0), stone)
+	_add_box(monument, Vector3(1.0, 5.0, 1.0), Vector3(0.0, 3.4, 0.0), stone)
+	var cap := _material(Color(0.86, 0.72, 0.32))
+	cap.emission_enabled = true
+	cap.emission = Color(0.5, 0.4, 0.12)
+	_add_box(monument, Vector3(0.7, 0.7, 0.7), Vector3(0.0, 6.2, 0.0), cap)
+	add_child(monument)
+
+
+func _build_roads() -> void:
+	var road_mat := _material(Color(0.42, 0.39, 0.34))
+	for i in 4:
+		var road := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(5.0, 0.1, 46.0)
+		road.mesh = mesh
+		road.rotation.y = TAU * float(i) / 4.0
+		road.position = Vector3(0.0, 0.05, 0.0).rotated(Vector3.UP, TAU * float(i) / 4.0)
+		road.position += Vector3(0.0, 0.0, -28.0).rotated(Vector3.UP, TAU * float(i) / 4.0)
+		road.material_override = road_mat
+		add_child(road)
+
+
+func _make_building(center: Vector3, size: Vector3, yaw: float, wall_color: Color, roof_color: Color) -> void:
+	# A shell you can actually walk into: four walls, a doorway, a roof.
+	building_positions.append(center)
+	var body := StaticBody3D.new()
+	body.position = center
+	body.rotation.y = yaw
+	add_child(body)
+
+	var w := size.x
+	var h := size.y
+	var d := size.z
+	var t := 0.3
+	var door_w := 1.8
+	var door_h := 2.4
+
+	var wall_mat := _material(wall_color)
+	var roof_mat := _material(roof_color)
+
+	_add_box(body, Vector3(w, 0.2, d), Vector3(0.0, 0.1, 0.0), _material(Color(0.4, 0.36, 0.32)))
+	_add_box(body, Vector3(w, h, t), Vector3(0.0, h * 0.5, d * 0.5 - t * 0.5), wall_mat)
+	_add_box(body, Vector3(t, h, d), Vector3(-w * 0.5 + t * 0.5, h * 0.5, 0.0), wall_mat)
+	_add_box(body, Vector3(t, h, d), Vector3(w * 0.5 - t * 0.5, h * 0.5, 0.0), wall_mat)
+
+	# Front wall, split around a doorway
+	var side := (w - door_w) * 0.5
+	var front_z := -d * 0.5 + t * 0.5
+	_add_box(body, Vector3(side, h, t), Vector3(-(door_w * 0.5 + side * 0.5), h * 0.5, front_z), wall_mat)
+	_add_box(body, Vector3(side, h, t), Vector3(door_w * 0.5 + side * 0.5, h * 0.5, front_z), wall_mat)
+	_add_box(body, Vector3(door_w, h - door_h, t), Vector3(0.0, door_h + (h - door_h) * 0.5, front_z), wall_mat)
+
+	_add_box(body, Vector3(w + 0.7, 0.35, d + 0.7), Vector3(0.0, h + 0.17, 0.0), roof_mat)
+
+	var lamp := OmniLight3D.new()
+	lamp.position = Vector3(0.0, h - 0.7, 0.0)
+	lamp.omni_range = maxf(w, d) * 1.3
+	lamp.light_energy = 1.1
+	lamp.shadow_enabled = false
+	body.add_child(lamp)
+
+
+func _build_town() -> void:
+	var walls := [
+		Color(0.78, 0.74, 0.66),
+		Color(0.71, 0.62, 0.52),
+		Color(0.66, 0.68, 0.7),
+		Color(0.8, 0.7, 0.58),
+	]
+	var roofs := [
+		Color(0.45, 0.26, 0.22),
+		Color(0.32, 0.3, 0.34),
+		Color(0.5, 0.33, 0.24),
+	]
+
+	# Inner ring facing the plaza, then an outer ring along the roads.
+	for i in 6:
+		var angle := TAU * float(i) / 6.0 + 0.26
+		var pos := Vector3(cos(angle), 0.0, sin(angle)) * _rng.randf_range(17.5, 19.0)
+		var size := Vector3(_rng.randf_range(7.5, 10.5), _rng.randf_range(4.0, 5.5), _rng.randf_range(7.0, 9.0))
+		_make_building(pos, size, atan2(pos.x, pos.z), walls[i % walls.size()], roofs[i % roofs.size()])
+
+	for i in 5:
+		var angle := TAU * float(i) / 5.0 + 0.9
+		var pos := Vector3(cos(angle), 0.0, sin(angle)) * _rng.randf_range(26.0, 28.0)
+		var size := Vector3(_rng.randf_range(8.0, 12.0), _rng.randf_range(4.5, 6.5), _rng.randf_range(7.5, 10.0))
+		_make_building(pos, size, atan2(pos.x, pos.z) + _rng.randf_range(-0.3, 0.3), walls[(i + 2) % walls.size()], roofs[(i + 1) % roofs.size()])
+
+
+func _scatter_trees(count: int) -> void:
+	# Trees live on the outskirts now — the town is the playable space.
+	for i in count:
+		var angle := _rng.randf_range(0.0, TAU)
+		var dist := _rng.randf_range(41.0, MAP_RADIUS - 8.0)
+		var pos := Vector3(cos(angle) * dist, 0.0, sin(angle) * dist)
+		var height := _rng.randf_range(4.0, 7.0)
+
+		var tree := StaticBody3D.new()
 		var trunk_shape := CollisionShape3D.new()
 		var cyl := CylinderShape3D.new()
 		cyl.radius = 0.35
 		cyl.height = height
 		trunk_shape.shape = cyl
 		trunk_shape.position = Vector3(0.0, height * 0.5, 0.0)
-		trunk.add_child(trunk_shape)
+		tree.add_child(trunk_shape)
 
-		var trunk_mesh := MeshInstance3D.new()
-		var trunk_cyl := CylinderMesh.new()
-		trunk_cyl.top_radius = 0.3
-		trunk_cyl.bottom_radius = 0.4
-		trunk_cyl.height = height
-		trunk_mesh.mesh = trunk_cyl
-		trunk_mesh.position = Vector3(0.0, height * 0.5, 0.0)
-		trunk_mesh.material_override = _material(Color(0.32, 0.22, 0.14))
-		trunk.add_child(trunk_mesh)
+		var trunk := MeshInstance3D.new()
+		var trunk_mesh := CylinderMesh.new()
+		trunk_mesh.top_radius = 0.28
+		trunk_mesh.bottom_radius = 0.42
+		trunk_mesh.height = height
+		trunk.mesh = trunk_mesh
+		trunk.position = Vector3(0.0, height * 0.5, 0.0)
+		trunk.material_override = _material(Color(0.33, 0.23, 0.15))
+		tree.add_child(trunk)
 
 		var leaves := MeshInstance3D.new()
 		var sphere := SphereMesh.new()
-		sphere.radius = _rng.randf_range(1.6, 2.6)
+		sphere.radius = _rng.randf_range(1.7, 2.6)
 		sphere.height = sphere.radius * 2.0
 		leaves.mesh = sphere
-		leaves.position = Vector3(0.0, height + 0.6, 0.0)
-		leaves.material_override = _material(Color(0.16, 0.38, 0.2))
-		trunk.add_child(leaves)
+		leaves.position = Vector3(0.0, height + 0.7, 0.0)
+		leaves.material_override = _material(Color(0.17, 0.36, 0.2))
+		tree.add_child(leaves)
 
-		trunk.position = pos
-		add_child(trunk)
-
-
-func _place_buildings(count: int) -> void:
-	for i in count:
-		var pos := _random_point(MAP_RADIUS - 14.0)
-		if pos.length() < 16.0:
-			pos = pos.normalized() * 18.0
-		var size := Vector3(
-			_rng.randf_range(6.0, 12.0),
-			_rng.randf_range(4.0, 8.0),
-			_rng.randf_range(6.0, 12.0)
-		)
-
-		var building := StaticBody3D.new()
-		var shape := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = size
-		shape.shape = box
-		shape.position = Vector3(0.0, size.y * 0.5, 0.0)
-		building.add_child(shape)
-
-		var mesh := MeshInstance3D.new()
-		var box_mesh := BoxMesh.new()
-		box_mesh.size = size
-		mesh.mesh = box_mesh
-		mesh.position = Vector3(0.0, size.y * 0.5, 0.0)
-		mesh.material_override = _material(Color(0.55, 0.5, 0.44))
-		building.add_child(mesh)
-
-		building.position = pos
-		building.rotation.y = _rng.randf_range(0.0, TAU)
-		add_child(building)
+		tree.position = pos
+		add_child(tree)
 
 
 func _place_barracks() -> void:
-	# Spawn points arranged in a ring. Supply is effectively unlimited: they are
-	# only a place to appear, they store nothing.
+	# Spawn pads on the outskirts. They store nothing — only a place to appear.
 	for i in BARRACKS_COUNT:
 		var angle := TAU * float(i) / float(BARRACKS_COUNT)
-		var pos := Vector3(cos(angle), 0.0, sin(angle)) * 24.0
+		var pos := Vector3(cos(angle), 0.0, sin(angle)) * BARRACKS_RADIUS
 
-		var marker := MeshInstance3D.new()
+		var pad := MeshInstance3D.new()
 		var box_mesh := BoxMesh.new()
-		box_mesh.size = Vector3(2.4, 0.3, 2.4)
-		marker.mesh = box_mesh
-		marker.position = pos + Vector3(0.0, 0.15, 0.0)
-		marker.material_override = _material(Color(0.75, 0.62, 0.3))
-		add_child(marker)
+		box_mesh.size = Vector3(2.6, 0.3, 2.6)
+		pad.mesh = box_mesh
+		pad.position = pos + Vector3(0.0, 0.15, 0.0)
+		var mat := _material(Color(0.82, 0.67, 0.3))
+		mat.emission_enabled = true
+		mat.emission = Color(0.35, 0.27, 0.08)
+		pad.material_override = mat
+		add_child(pad)
 
 		_barracks.append({"pos": pos, "owner": 0})
 
@@ -264,9 +367,9 @@ func _sync_phase(active: bool, time_left: float) -> void:
 
 func _update_boundary() -> void:
 	var count := maxi(1, _players().size())
-	# Must always enclose the barracks ring (radius 24) and its overflow ring
-	# (radius 32), or players spawn outside the boundary and bleed out.
-	var target := clampf(36.0 + float(count) * 2.5, 36.0, MAP_RADIUS - 5.0)
+	# Must always enclose the barracks ring and its overflow ring, or players
+	# spawn outside the boundary and bleed out.
+	var target := clampf(48.0 + float(count) * 1.6, 48.0, MAP_RADIUS - 5.0)
 	if absf(target - boundary_radius) > 0.5:
 		boundary_radius = target
 		_sync_boundary.rpc(boundary_radius)
@@ -462,7 +565,7 @@ func claim_barracks(id: int) -> Vector3:
 			return entry["pos"] + Vector3(0.0, 1.0, 0.0)
 	# Supply is unlimited: if the ring is full, add another further out.
 	var angle := _rng.randf_range(0.0, TAU)
-	var pos := Vector3(cos(angle), 0.0, sin(angle)) * 32.0
+	var pos := Vector3(cos(angle), 0.0, sin(angle)) * 42.0
 	_barracks.append({"pos": pos, "owner": id})
 	return pos + Vector3(0.0, 1.0, 0.0)
 

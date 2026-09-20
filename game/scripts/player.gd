@@ -25,18 +25,29 @@ var _target_pos := Vector3.ZERO
 var _target_yaw := 0.0
 var _sync_accum := 0.0
 var _shot_cooldown := 0.0
+var _anim_time := 0.0
+var _prev_pos := Vector3.ZERO
+var _observed_speed := 0.0
 
 var spring: SpringArm3D
 var camera: Camera3D
-var body_mesh: MeshInstance3D
+var rig: Node3D
+var torso: MeshInstance3D
+var head: Node3D
+var arm_l: Node3D
+var arm_r: Node3D
+var leg_l: Node3D
+var leg_r: Node3D
 var name_label: Label3D
 
 
 func _ready() -> void:
 	add_to_group("players")
-	_build_body()
+	_build_collision()
+	_build_character()
 	is_local = peer_id == multiplayer.get_unique_id()
 	_target_pos = global_position
+	_prev_pos = global_position
 	_target_yaw = rotation.y
 	yaw = rotation.y
 	if is_local:
@@ -48,42 +59,98 @@ func get_peer_id() -> int:
 	return peer_id
 
 
-func _build_body() -> void:
+# --------------------------------------------------------------- appearance
+
+func _material(color: Color, rough := 0.85) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.roughness = rough
+	return mat
+
+
+func _part(size: Vector3, pos: Vector3, mat: StandardMaterial3D) -> MeshInstance3D:
+	var node := MeshInstance3D.new()
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	node.mesh = mesh
+	node.position = pos
+	node.material_override = mat
+	return node
+
+
+func _build_collision() -> void:
 	var shape := CollisionShape3D.new()
 	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.4
+	capsule.radius = 0.35
 	capsule.height = 1.8
 	shape.shape = capsule
 	shape.position = Vector3(0.0, 0.9, 0.0)
 	add_child(shape)
 
-	body_mesh = MeshInstance3D.new()
-	var capsule_mesh := CapsuleMesh.new()
-	capsule_mesh.radius = 0.4
-	capsule_mesh.height = 1.8
-	body_mesh.mesh = capsule_mesh
-	body_mesh.position = Vector3(0.0, 0.9, 0.0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = _color_for_peer(peer_id)
-	body_mesh.material_override = mat
-	add_child(body_mesh)
 
-	# A small snout so facing direction is readable in third person.
-	var snout := MeshInstance3D.new()
-	var snout_mesh := BoxMesh.new()
-	snout_mesh.size = Vector3(0.22, 0.22, 0.4)
-	snout.mesh = snout_mesh
-	snout.position = Vector3(0.0, 1.45, -0.45)
-	snout.material_override = mat
-	add_child(snout)
+func _build_character() -> void:
+	rig = Node3D.new()
+	add_child(rig)
+
+	var base_color := _color_for_peer(peer_id)
+	var shirt := _material(base_color)
+	# Sleeves a shade darker so arms read as separate limbs against the torso.
+	var sleeve := _material(base_color.darkened(0.22))
+	var skin := _material(Color(0.83, 0.65, 0.5))
+	var trousers := _material(Color(0.17, 0.19, 0.25))
+	var boots := _material(Color(0.1, 0.1, 0.12))
+	var hair := _material(Color(0.14, 0.11, 0.09))
+
+	# Torso and hips
+	torso = _part(Vector3(0.5, 0.6, 0.29), Vector3(0.0, 1.16, 0.0), shirt)
+	rig.add_child(torso)
+	rig.add_child(_part(Vector3(0.46, 0.18, 0.28), Vector3(0.0, 0.83, 0.0), trousers))
+
+	# Head assembly on its own pivot so it can tilt with aim
+	head = Node3D.new()
+	head.position = Vector3(0.0, 1.5, 0.0)
+	rig.add_child(head)
+	head.add_child(_part(Vector3(0.22, 0.14, 0.22), Vector3(0.0, 0.04, 0.0), skin))  # neck
+	head.add_child(_part(Vector3(0.33, 0.33, 0.31), Vector3(0.0, 0.27, 0.0), skin))
+	head.add_child(_part(Vector3(0.35, 0.1, 0.33), Vector3(0.0, 0.45, 0.0), hair))
+	# Eyes, so the character reads as facing forward
+	var eye := _material(Color(0.08, 0.08, 0.1))
+	head.add_child(_part(Vector3(0.06, 0.06, 0.02), Vector3(-0.08, 0.3, -0.16), eye))
+	head.add_child(_part(Vector3(0.06, 0.06, 0.02), Vector3(0.08, 0.3, -0.16), eye))
+
+	# Arms — pivots sit at the shoulders so rotation swings the whole limb
+	arm_l = Node3D.new()
+	arm_l.position = Vector3(-0.35, 1.42, 0.0)
+	rig.add_child(arm_l)
+	arm_l.add_child(_part(Vector3(0.17, 0.54, 0.18), Vector3(0.0, -0.27, 0.0), sleeve))
+	arm_l.add_child(_part(Vector3(0.15, 0.16, 0.16), Vector3(0.0, -0.61, 0.0), skin))
+
+	arm_r = Node3D.new()
+	arm_r.position = Vector3(0.35, 1.42, 0.0)
+	rig.add_child(arm_r)
+	arm_r.add_child(_part(Vector3(0.17, 0.54, 0.18), Vector3(0.0, -0.27, 0.0), sleeve))
+	arm_r.add_child(_part(Vector3(0.15, 0.16, 0.16), Vector3(0.0, -0.61, 0.0), skin))
+
+	# Legs
+	leg_l = Node3D.new()
+	leg_l.position = Vector3(-0.13, 0.82, 0.0)
+	rig.add_child(leg_l)
+	leg_l.add_child(_part(Vector3(0.19, 0.6, 0.2), Vector3(0.0, -0.3, 0.0), trousers))
+	leg_l.add_child(_part(Vector3(0.21, 0.13, 0.29), Vector3(0.0, -0.65, -0.04), boots))
+
+	leg_r = Node3D.new()
+	leg_r.position = Vector3(0.13, 0.82, 0.0)
+	rig.add_child(leg_r)
+	leg_r.add_child(_part(Vector3(0.19, 0.6, 0.2), Vector3(0.0, -0.3, 0.0), trousers))
+	leg_r.add_child(_part(Vector3(0.21, 0.13, 0.29), Vector3(0.0, -0.65, -0.04), boots))
 
 	name_label = Label3D.new()
 	name_label.text = player_name
-	name_label.position = Vector3(0.0, 2.2, 0.0)
+	name_label.position = Vector3(0.0, 2.25, 0.0)
 	name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	name_label.no_depth_test = true
-	name_label.font_size = 48
-	name_label.pixel_size = 0.005
+	name_label.font_size = 44
+	name_label.pixel_size = 0.0045
 	add_child(name_label)
 
 
@@ -103,7 +170,7 @@ func _build_camera() -> void:
 
 func _color_for_peer(id: int) -> Color:
 	var hue := fmod(float(id) * 0.191, 1.0)
-	return Color.from_hsv(hue, 0.55, 0.9)
+	return Color.from_hsv(hue, 0.6, 0.85)
 
 
 func set_display_name(value: String) -> void:
@@ -111,6 +178,8 @@ func set_display_name(value: String) -> void:
 	if name_label != null:
 		name_label.text = value
 
+
+# ------------------------------------------------------------------- input
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
@@ -146,6 +215,12 @@ func _physics_process(delta: float) -> void:
 		global_position = global_position.lerp(_target_pos, weight)
 		rotation.y = lerp_angle(rotation.y, _target_yaw, weight)
 
+	if delta > 0.0:
+		var travelled := (global_position - _prev_pos)
+		_observed_speed = Vector2(travelled.x, travelled.z).length() / delta
+		_prev_pos = global_position
+	_animate(delta)
+
 
 func _move_local(delta: float) -> void:
 	rotation.y = yaw
@@ -179,6 +254,44 @@ func _move_local(delta: float) -> void:
 
 	move_and_slide()
 
+
+# --------------------------------------------------------------- animation
+
+func _animate(delta: float) -> void:
+	if rig == null:
+		return
+
+	var moving := _observed_speed > 0.6
+	var stride_rate := 5.0 + clampf(_observed_speed, 0.0, 10.0) * 0.9
+	_anim_time += delta * (stride_rate if moving else 1.8)
+
+	var settle := clampf(delta * 10.0, 0.0, 1.0)
+
+	if moving:
+		var amount := clampf(_observed_speed / WALK_SPEED, 0.2, 1.5)
+		var swing := sin(_anim_time) * 0.85 * amount
+		arm_l.rotation.x = swing
+		arm_r.rotation.x = -swing
+		leg_l.rotation.x = -swing
+		leg_r.rotation.x = swing
+		torso.position.y = 1.16 + absf(sin(_anim_time)) * 0.035
+		torso.rotation.z = sin(_anim_time) * 0.04
+	else:
+		# Idle: limbs settle, chest breathes.
+		arm_l.rotation.x = lerp_angle(arm_l.rotation.x, 0.0, settle)
+		arm_r.rotation.x = lerp_angle(arm_r.rotation.x, 0.0, settle)
+		leg_l.rotation.x = lerp_angle(leg_l.rotation.x, 0.0, settle)
+		leg_r.rotation.x = lerp_angle(leg_r.rotation.x, 0.0, settle)
+		torso.position.y = 1.16 + sin(_anim_time) * 0.012
+		torso.rotation.z = lerp_angle(torso.rotation.z, 0.0, settle)
+
+	if head != null:
+		# Only a hint of the aim direction — a full pitch match looks like a broken neck.
+		var look := pitch * 0.3 if is_local else 0.0
+		head.rotation.x = lerp_angle(head.rotation.x, clampf(look, -0.2, 0.15), settle)
+
+
+# ------------------------------------------------------------------ combat
 
 func _try_shoot() -> void:
 	if not alive or _shot_cooldown > 0.0 or camera == null:
@@ -215,12 +328,14 @@ func apply_stats(new_health: float, new_coins: int, is_alive: bool) -> void:
 	health = new_health
 	coins = new_coins
 	alive = is_alive
-	if body_mesh != null:
-		body_mesh.visible = is_alive
-	visible = is_alive or is_local
+	if rig != null:
+		rig.visible = is_alive
+	if name_label != null:
+		name_label.visible = is_alive
 
 
 func teleport(pos: Vector3) -> void:
 	global_position = pos
 	_target_pos = pos
+	_prev_pos = pos
 	velocity = Vector3.ZERO
