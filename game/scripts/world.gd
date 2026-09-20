@@ -4,10 +4,10 @@ extends Node3D
 ## the battle/hunt phase timer and the population-scaled boundary.
 
 const MAP_SEED := 20260920
-const MAP_RADIUS := 70.0
-const BARRACKS_COUNT := 16
-const BARRACKS_RADIUS := 36.0
-const PLAZA_RADIUS := 9.0
+const MAP_RADIUS := 95.0
+const BARRACKS_COUNT := 20
+const BARRACKS_RADIUS := 50.0
+const PLAZA_RADIUS := 12.0
 const EGG_REWARD := 120
 const EGG_PICKUP_RANGE := 2.2
 const LOOT_PICKUP_RANGE := 2.0
@@ -24,7 +24,7 @@ signal state_changed
 
 var battle_active := false
 var phase_time_left := 0.0
-var boundary_radius := 48.0
+var boundary_radius := 58.0
 var egg_position := Vector3.ZERO
 
 var _rng := RandomNumberGenerator.new()
@@ -87,12 +87,12 @@ func _build_ground() -> void:
 	add_child(ground)
 
 	# Patches of dry grass and dirt break up the flat colour.
-	for i in 90:
+	for i in 150:
 		var angle := _rng.randf_range(0.0, TAU)
 		var dist := sqrt(_rng.randf()) * (MAP_RADIUS - 6.0)
 		var patch := MeshInstance3D.new()
 		var disc := CylinderMesh.new()
-		var radius := _rng.randf_range(2.0, 6.5)
+		var radius := _rng.randf_range(2.5, 8.0)
 		disc.top_radius = radius
 		disc.bottom_radius = radius
 		disc.height = 0.06
@@ -159,11 +159,11 @@ func _build_roads() -> void:
 	var kerb_mat := Props.material(Color(0.5, 0.48, 0.44), 0.95)
 	for i in 4:
 		var yaw := TAU * float(i) / 4.0
-		var offset := Vector3(0.0, 0.0, -30.0).rotated(Vector3.UP, yaw)
+		var offset := Vector3(0.0, 0.0, -44.0).rotated(Vector3.UP, yaw)
 
 		var road := MeshInstance3D.new()
 		var mesh := BoxMesh.new()
-		mesh.size = Vector3(6.0, 0.12, 50.0)
+		mesh.size = Vector3(6.5, 0.12, 78.0)
 		road.mesh = mesh
 		road.rotation.y = yaw
 		road.position = offset + Vector3(0.0, 0.06, 0.0)
@@ -173,10 +173,10 @@ func _build_roads() -> void:
 		for side in [-1.0, 1.0]:
 			var kerb := MeshInstance3D.new()
 			var kerb_mesh := BoxMesh.new()
-			kerb_mesh.size = Vector3(0.4, 0.2, 50.0)
+			kerb_mesh.size = Vector3(0.4, 0.2, 78.0)
 			kerb.mesh = kerb_mesh
 			kerb.rotation.y = yaw
-			kerb.position = offset + Vector3(side * 3.2, 0.1, 0.0).rotated(Vector3.UP, yaw)
+			kerb.position = offset + Vector3(side * 3.45, 0.1, 0.0).rotated(Vector3.UP, yaw)
 			kerb.material_override = kerb_mat
 			add_child(kerb)
 
@@ -196,17 +196,17 @@ func _build_town() -> void:
 		Color(0.5, 0.52, 0.48),
 	]
 
-	for i in 6:
-		var angle := TAU * float(i) / 6.0 + 0.26
-		var pos := Vector3(cos(angle), 0.0, sin(angle)) * _rng.randf_range(17.5, 19.0)
+	for i in 7:
+		var angle := TAU * float(i) / 7.0 + 0.26
+		var pos := Vector3(cos(angle), 0.0, sin(angle)) * _rng.randf_range(23.0, 26.0)
 		var size := Vector3(_rng.randf_range(8.0, 11.0), _rng.randf_range(3.6, 4.2), _rng.randf_range(7.5, 9.5))
 		var storeys := 2 if _rng.randf() < 0.4 else 1
 		building_positions.append(pos)
 		Props.building(self, pos, size, atan2(pos.x, pos.z), walls[i % walls.size()], roofs[i % roofs.size()], storeys)
 
-	for i in 5:
-		var angle := TAU * float(i) / 5.0 + 0.9
-		var pos := Vector3(cos(angle), 0.0, sin(angle)) * _rng.randf_range(26.0, 28.0)
+	for i in 7:
+		var angle := TAU * float(i) / 7.0 + 0.9
+		var pos := Vector3(cos(angle), 0.0, sin(angle)) * _rng.randf_range(36.0, 42.0)
 		var size := Vector3(_rng.randf_range(9.0, 12.0), _rng.randf_range(3.6, 4.4), _rng.randf_range(8.0, 10.0))
 		var storeys := 2 if _rng.randf() < 0.5 else 1
 		building_positions.append(pos)
@@ -246,9 +246,9 @@ func _build_outskirts() -> void:
 		Color(0.14, 0.27, 0.17),
 	]
 
-	for i in 70:
+	for i in 110:
 		var angle := _rng.randf_range(0.0, TAU)
-		var dist := _rng.randf_range(40.0, MAP_RADIUS - 6.0)
+		var dist := _rng.randf_range(56.0, MAP_RADIUS - 6.0)
 		Props.tree(
 			self,
 			Vector3(cos(angle) * dist, 0.0, sin(angle) * dist),
@@ -258,9 +258,9 @@ func _build_outskirts() -> void:
 		)
 
 	# A few clumps closer in, as cover between the town and the treeline.
-	for i in 14:
+	for i in 30:
 		var angle := _rng.randf_range(0.0, TAU)
-		var dist := _rng.randf_range(31.0, 39.0)
+		var dist := _rng.randf_range(30.0, 55.0)
 		Props.tree(
 			self,
 			Vector3(cos(angle) * dist, 0.0, sin(angle) * dist),
@@ -269,7 +269,7 @@ func _build_outskirts() -> void:
 			_rng.randf_range(0.0, TAU)
 		)
 
-	for i in 26:
+	for i in 45:
 		var angle := _rng.randf_range(0.0, TAU)
 		var dist := _rng.randf_range(20.0, MAP_RADIUS - 8.0)
 		Props.rock(self, Vector3(cos(angle) * dist, 0.0, sin(angle) * dist), _rng.randf_range(0.5, 1.4), _rng.randf_range(0.0, TAU))
@@ -425,7 +425,7 @@ func _update_boundary() -> void:
 	var count := maxi(1, _players().size())
 	# Must always enclose the barracks ring and its overflow ring, or players
 	# spawn outside the boundary and bleed out.
-	var target := clampf(48.0 + float(count) * 1.6, 48.0, MAP_RADIUS - 5.0)
+	var target := clampf(58.0 + float(count) * 2.2, 58.0, MAP_RADIUS - 6.0)
 	if absf(target - boundary_radius) > 0.5:
 		boundary_radius = target
 		_sync_boundary.rpc(boundary_radius)
@@ -621,7 +621,7 @@ func claim_barracks(id: int) -> Vector3:
 			return entry["pos"] + Vector3(0.0, 1.0, 0.0)
 	# Supply is unlimited: if the ring is full, add another further out.
 	var angle := _rng.randf_range(0.0, TAU)
-	var pos := Vector3(cos(angle), 0.0, sin(angle)) * 42.0
+	var pos := Vector3(cos(angle), 0.0, sin(angle)) * 56.0
 	_barracks.append({"pos": pos, "owner": id})
 	return pos + Vector3(0.0, 1.0, 0.0)
 

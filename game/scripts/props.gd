@@ -128,7 +128,9 @@ static func _pitched_roof(parent: Node3D, base: Vector3, w: float, d: float, mat
 		slab.mesh = mesh
 		slab.material_override = mat
 		slab.position = base + Vector3(0.0, rise * 0.5, sign_z * d * 0.25)
-		slab.rotation.x = -angle * sign_z
+		# Positive sign_z must tilt the far edge DOWN, so the sign follows
+		# sign_z directly — negating it flips both slabs into a valley.
+		slab.rotation.x = angle * sign_z
 		parent.add_child(slab)
 
 	var gable := material(mat.albedo_color.lightened(0.1), 0.95)
