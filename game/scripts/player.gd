@@ -89,12 +89,14 @@ func _build_body() -> void:
 
 func _build_camera() -> void:
 	spring = SpringArm3D.new()
-	spring.position = Vector3(0.0, 1.6, 0.0)
-	spring.spring_length = 4.5
+	spring.position = Vector3(0.0, 1.7, 0.0)
+	spring.spring_length = 5.0
 	spring.margin = 0.3
 	add_child(spring)
 
 	camera = Camera3D.new()
+	# Over-the-shoulder so the player's own body doesn't sit on the crosshair.
+	camera.position = Vector3(0.8, 0.0, 0.0)
 	camera.current = true
 	spring.add_child(camera)
 

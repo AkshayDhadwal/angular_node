@@ -22,7 +22,7 @@ signal state_changed
 
 var battle_active := false
 var phase_time_left := 0.0
-var boundary_radius := 30.0
+var boundary_radius := 36.0
 var egg_position := Vector3.ZERO
 
 var _rng := RandomNumberGenerator.new()
@@ -264,7 +264,9 @@ func _sync_phase(active: bool, time_left: float) -> void:
 
 func _update_boundary() -> void:
 	var count := maxi(1, _players().size())
-	var target := clampf(20.0 + float(count) * 3.0, 22.0, MAP_RADIUS - 5.0)
+	# Must always enclose the barracks ring (radius 24) and its overflow ring
+	# (radius 32), or players spawn outside the boundary and bleed out.
+	var target := clampf(36.0 + float(count) * 2.5, 36.0, MAP_RADIUS - 5.0)
 	if absf(target - boundary_radius) > 0.5:
 		boundary_radius = target
 		_sync_boundary.rpc(boundary_radius)

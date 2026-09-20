@@ -9,6 +9,7 @@ var phase_label: Label
 var timer_label: Label
 var coins_label: Label
 var health_bar: ProgressBar
+var health_label: Label
 var boundary_label: Label
 var compass_label: Label
 var feed_box: VBoxContainer
@@ -52,7 +53,7 @@ func _build() -> void:
 	# Bottom-left status block
 	var bottom := VBoxContainer.new()
 	bottom.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	bottom.position = Vector2(20, -110)
+	bottom.position = Vector2(20, -150)
 	bottom.custom_minimum_size = Vector2(260, 0)
 	add_child(bottom)
 
@@ -63,8 +64,12 @@ func _build() -> void:
 	health_bar = ProgressBar.new()
 	health_bar.max_value = 100.0
 	health_bar.value = 100.0
-	health_bar.custom_minimum_size = Vector2(240, 20)
+	health_bar.show_percentage = false
+	health_bar.custom_minimum_size = Vector2(240, 22)
 	bottom.add_child(health_bar)
+
+	health_label = Label.new()
+	bottom.add_child(health_label)
 
 	boundary_label = Label.new()
 	bottom.add_child(boundary_label)
@@ -120,6 +125,7 @@ func _process(_delta: float) -> void:
 
 	coins_label.text = "%d coins" % player.coins
 	health_bar.value = clampf(player.health, 0.0, 100.0)
+	health_label.text = "%d HP" % int(maxf(player.health, 0.0)) if player.alive else "DOWN — respawning"
 
 	var flat := Vector3(player.global_position.x, 0.0, player.global_position.z)
 	var dist_from_centre := flat.length()
