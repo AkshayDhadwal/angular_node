@@ -40,22 +40,7 @@ func _ready() -> void:
 
 
 func _build_environment() -> void:
-	var light := DirectionalLight3D.new()
-	light.rotation = Vector3(-1.0, -0.6, 0.0)
-	light.light_energy = 1.1
-	light.shadow_enabled = true
-	add_child(light)
-
-	var env := WorldEnvironment.new()
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_SKY
-	var sky := Sky.new()
-	sky.sky_material = ProceduralSkyMaterial.new()
-	environment.sky = sky
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.6
-	env.environment = environment
-	add_child(env)
+	GameEnvironment.build(self)
 
 
 # ------------------------------------------------------------------ sign-in

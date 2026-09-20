@@ -36,8 +36,12 @@ var torso: MeshInstance3D
 var head: Node3D
 var arm_l: Node3D
 var arm_r: Node3D
+var elbow_l: Node3D
+var elbow_r: Node3D
 var leg_l: Node3D
 var leg_r: Node3D
+var knee_l: Node3D
+var knee_r: Node3D
 var name_label: Label3D
 
 
@@ -93,64 +97,83 @@ func _build_character() -> void:
 	add_child(rig)
 
 	var base_color := _color_for_peer(peer_id)
-	var shirt := _material(base_color)
-	# Sleeves a shade darker so arms read as separate limbs against the torso.
-	var sleeve := _material(base_color.darkened(0.22))
-	var skin := _material(Color(0.83, 0.65, 0.5))
-	var trousers := _material(Color(0.17, 0.19, 0.25))
-	var boots := _material(Color(0.1, 0.1, 0.12))
-	var hair := _material(Color(0.14, 0.11, 0.09))
+	var shirt := _material(base_color, 0.95)
+	var sleeve := _material(base_color.darkened(0.18), 0.95)
+	var skin := _material(Color(0.8, 0.62, 0.47), 0.85)
+	var trousers := _material(Color(0.19, 0.21, 0.27), 0.95)
+	var boots := _material(Color(0.12, 0.11, 0.12), 0.8)
+	var hair := _material(Color(0.13, 0.1, 0.08), 0.95)
+	var belt := _material(Color(0.24, 0.18, 0.13), 0.8)
 
-	# Torso and hips
-	torso = _part(Vector3(0.5, 0.6, 0.29), Vector3(0.0, 1.16, 0.0), shirt)
+	# Torso: narrower than the hips at the waist, wider at the shoulders.
+	torso = _part(Vector3(0.44, 0.52, 0.26), Vector3(0.0, 1.18, 0.0), shirt)
 	rig.add_child(torso)
-	rig.add_child(_part(Vector3(0.46, 0.18, 0.28), Vector3(0.0, 0.83, 0.0), trousers))
+	rig.add_child(_part(Vector3(0.5, 0.17, 0.28), Vector3(0.0, 1.4, 0.0), shirt))
+	rig.add_child(_part(Vector3(0.42, 0.14, 0.26), Vector3(0.0, 0.95, 0.0), belt))
+	rig.add_child(_part(Vector3(0.4, 0.14, 0.25), Vector3(0.0, 0.86, 0.0), trousers))
 
-	# Head assembly on its own pivot so it can tilt with aim
+	# Head on its own pivot
 	head = Node3D.new()
-	head.position = Vector3(0.0, 1.5, 0.0)
+	head.position = Vector3(0.0, 1.54, 0.0)
 	rig.add_child(head)
-	head.add_child(_part(Vector3(0.22, 0.14, 0.22), Vector3(0.0, 0.04, 0.0), skin))  # neck
-	head.add_child(_part(Vector3(0.33, 0.33, 0.31), Vector3(0.0, 0.27, 0.0), skin))
-	head.add_child(_part(Vector3(0.35, 0.1, 0.33), Vector3(0.0, 0.45, 0.0), hair))
-	# Eyes, so the character reads as facing forward
-	var eye := _material(Color(0.08, 0.08, 0.1))
-	head.add_child(_part(Vector3(0.06, 0.06, 0.02), Vector3(-0.08, 0.3, -0.16), eye))
-	head.add_child(_part(Vector3(0.06, 0.06, 0.02), Vector3(0.08, 0.3, -0.16), eye))
+	head.add_child(_part(Vector3(0.15, 0.13, 0.15), Vector3(0.0, 0.05, 0.0), skin))
+	head.add_child(_part(Vector3(0.3, 0.3, 0.29), Vector3(0.0, 0.26, 0.0), skin))
+	head.add_child(_part(Vector3(0.32, 0.1, 0.31), Vector3(0.0, 0.44, 0.0), hair))
+	head.add_child(_part(Vector3(0.33, 0.12, 0.06), Vector3(0.0, 0.33, -0.14), hair))
+	var eye := _material(Color(0.07, 0.07, 0.09), 0.4)
+	head.add_child(_part(Vector3(0.055, 0.055, 0.02), Vector3(-0.07, 0.27, -0.152), eye))
+	head.add_child(_part(Vector3(0.055, 0.055, 0.02), Vector3(0.07, 0.27, -0.152), eye))
 
-	# Arms — pivots sit at the shoulders so rotation swings the whole limb
+	# Arms: shoulder pivot, then an elbow pivot carrying the forearm.
 	arm_l = Node3D.new()
-	arm_l.position = Vector3(-0.35, 1.42, 0.0)
+	arm_l.position = Vector3(-0.31, 1.44, 0.0)
 	rig.add_child(arm_l)
-	arm_l.add_child(_part(Vector3(0.17, 0.54, 0.18), Vector3(0.0, -0.27, 0.0), sleeve))
-	arm_l.add_child(_part(Vector3(0.15, 0.16, 0.16), Vector3(0.0, -0.61, 0.0), skin))
+	arm_l.add_child(_part(Vector3(0.15, 0.4, 0.16), Vector3(0.0, -0.2, 0.0), sleeve))
+	elbow_l = Node3D.new()
+	elbow_l.position = Vector3(0.0, -0.4, 0.0)
+	arm_l.add_child(elbow_l)
+	elbow_l.add_child(_part(Vector3(0.13, 0.36, 0.14), Vector3(0.0, -0.18, 0.0), sleeve))
+	elbow_l.add_child(_part(Vector3(0.14, 0.15, 0.15), Vector3(0.0, -0.42, 0.0), skin))
 
 	arm_r = Node3D.new()
-	arm_r.position = Vector3(0.35, 1.42, 0.0)
+	arm_r.position = Vector3(0.31, 1.44, 0.0)
 	rig.add_child(arm_r)
-	arm_r.add_child(_part(Vector3(0.17, 0.54, 0.18), Vector3(0.0, -0.27, 0.0), sleeve))
-	arm_r.add_child(_part(Vector3(0.15, 0.16, 0.16), Vector3(0.0, -0.61, 0.0), skin))
+	arm_r.add_child(_part(Vector3(0.15, 0.4, 0.16), Vector3(0.0, -0.2, 0.0), sleeve))
+	elbow_r = Node3D.new()
+	elbow_r.position = Vector3(0.0, -0.4, 0.0)
+	arm_r.add_child(elbow_r)
+	elbow_r.add_child(_part(Vector3(0.13, 0.36, 0.14), Vector3(0.0, -0.18, 0.0), sleeve))
+	elbow_r.add_child(_part(Vector3(0.14, 0.15, 0.15), Vector3(0.0, -0.42, 0.0), skin))
 
-	# Legs
+	# Legs: hip pivot, then a knee pivot carrying the shin and boot.
 	leg_l = Node3D.new()
-	leg_l.position = Vector3(-0.13, 0.82, 0.0)
+	leg_l.position = Vector3(-0.12, 0.9, 0.0)
 	rig.add_child(leg_l)
-	leg_l.add_child(_part(Vector3(0.19, 0.6, 0.2), Vector3(0.0, -0.3, 0.0), trousers))
-	leg_l.add_child(_part(Vector3(0.21, 0.13, 0.29), Vector3(0.0, -0.65, -0.04), boots))
+	leg_l.add_child(_part(Vector3(0.18, 0.44, 0.19), Vector3(0.0, -0.22, 0.0), trousers))
+	knee_l = Node3D.new()
+	knee_l.position = Vector3(0.0, -0.44, 0.0)
+	leg_l.add_child(knee_l)
+	knee_l.add_child(_part(Vector3(0.16, 0.42, 0.17), Vector3(0.0, -0.21, 0.0), trousers))
+	knee_l.add_child(_part(Vector3(0.19, 0.13, 0.27), Vector3(0.0, -0.45, -0.04), boots))
 
 	leg_r = Node3D.new()
-	leg_r.position = Vector3(0.13, 0.82, 0.0)
+	leg_r.position = Vector3(0.12, 0.9, 0.0)
 	rig.add_child(leg_r)
-	leg_r.add_child(_part(Vector3(0.19, 0.6, 0.2), Vector3(0.0, -0.3, 0.0), trousers))
-	leg_r.add_child(_part(Vector3(0.21, 0.13, 0.29), Vector3(0.0, -0.65, -0.04), boots))
+	leg_r.add_child(_part(Vector3(0.18, 0.44, 0.19), Vector3(0.0, -0.22, 0.0), trousers))
+	knee_r = Node3D.new()
+	knee_r.position = Vector3(0.0, -0.44, 0.0)
+	leg_r.add_child(knee_r)
+	knee_r.add_child(_part(Vector3(0.16, 0.42, 0.17), Vector3(0.0, -0.21, 0.0), trousers))
+	knee_r.add_child(_part(Vector3(0.19, 0.13, 0.27), Vector3(0.0, -0.45, -0.04), boots))
 
 	name_label = Label3D.new()
 	name_label.text = player_name
-	name_label.position = Vector3(0.0, 2.25, 0.0)
+	name_label.position = Vector3(0.0, 2.3, 0.0)
 	name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	name_label.no_depth_test = true
 	name_label.font_size = 44
-	name_label.pixel_size = 0.0045
+	name_label.pixel_size = 0.0042
+	name_label.outline_size = 10
 	add_child(name_label)
 
 
@@ -262,31 +285,44 @@ func _animate(delta: float) -> void:
 		return
 
 	var moving := _observed_speed > 0.6
-	var stride_rate := 5.0 + clampf(_observed_speed, 0.0, 10.0) * 0.9
+	var stride_rate := 5.0 + clampf(_observed_speed, 0.0, 10.0) * 0.85
 	_anim_time += delta * (stride_rate if moving else 1.8)
 
 	var settle := clampf(delta * 10.0, 0.0, 1.0)
 
 	if moving:
-		var amount := clampf(_observed_speed / WALK_SPEED, 0.2, 1.5)
-		var swing := sin(_anim_time) * 0.85 * amount
+		var amount := clampf(_observed_speed / WALK_SPEED, 0.25, 1.5)
+		var swing := sin(_anim_time) * 0.8 * amount
+
 		arm_l.rotation.x = swing
 		arm_r.rotation.x = -swing
+		# Elbows stay slightly bent and tuck further on the back swing.
+		elbow_l.rotation.x = -0.25 - maxf(0.0, -swing) * 0.55
+		elbow_r.rotation.x = -0.25 - maxf(0.0, swing) * 0.55
+
 		leg_l.rotation.x = -swing
 		leg_r.rotation.x = swing
-		torso.position.y = 1.16 + absf(sin(_anim_time)) * 0.035
-		torso.rotation.z = sin(_anim_time) * 0.04
+		knee_l.rotation.x = -maxf(0.0, swing) * 0.95
+		knee_r.rotation.x = -maxf(0.0, -swing) * 0.95
+
+		torso.position.y = 1.18 + absf(sin(_anim_time)) * 0.035
+		torso.rotation.z = sin(_anim_time) * 0.035
+		rig.rotation.x = -clampf(_observed_speed / SPRINT_SPEED, 0.0, 1.0) * 0.09
 	else:
-		# Idle: limbs settle, chest breathes.
 		arm_l.rotation.x = lerp_angle(arm_l.rotation.x, 0.0, settle)
 		arm_r.rotation.x = lerp_angle(arm_r.rotation.x, 0.0, settle)
+		elbow_l.rotation.x = lerp_angle(elbow_l.rotation.x, -0.18, settle)
+		elbow_r.rotation.x = lerp_angle(elbow_r.rotation.x, -0.18, settle)
 		leg_l.rotation.x = lerp_angle(leg_l.rotation.x, 0.0, settle)
 		leg_r.rotation.x = lerp_angle(leg_r.rotation.x, 0.0, settle)
-		torso.position.y = 1.16 + sin(_anim_time) * 0.012
+		knee_l.rotation.x = lerp_angle(knee_l.rotation.x, 0.0, settle)
+		knee_r.rotation.x = lerp_angle(knee_r.rotation.x, 0.0, settle)
+		torso.position.y = 1.18 + sin(_anim_time) * 0.012
 		torso.rotation.z = lerp_angle(torso.rotation.z, 0.0, settle)
+		rig.rotation.x = lerp_angle(rig.rotation.x, 0.0, settle)
 
 	if head != null:
-		# Only a hint of the aim direction — a full pitch match looks like a broken neck.
+		# Only a hint of the aim direction — a full pitch match looks broken.
 		var look := pitch * 0.3 if is_local else 0.0
 		head.rotation.x = lerp_angle(head.rotation.x, clampf(look, -0.2, 0.15), settle)
 
